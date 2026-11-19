@@ -16,6 +16,8 @@ namespace $ {
 		/** Пауза перед переподключением после обрыва. */
 		static reconnect_delay = 1_000 // ms
 
+		static wake_after = 10_000 // ms
+
 		/** За сколько открылся мастер, с которым работаем сейчас. */
 		@ $mol_mem
 		master_rtt( next = 0 ) {
@@ -28,6 +30,7 @@ namespace $ {
 			port.socket = socket
 
 			const stop_probe = this.probe_loop()
+			const stop_wake = this.wake_watch()
 			const delay = ( this.constructor as typeof $bog_yard ).reconnect_delay
 
 			socket.onmessage = async( event )=> {
@@ -51,6 +54,7 @@ namespace $ {
 			socket.onclose = ()=> {
 				clearInterval( beat )
 				stop_probe()
+				stop_wake()
 				setTimeout( ()=> {
 					if( this.$.$giper_baza_yard.masters().length ) this.master_next()
 					this.reconnects( null )
@@ -61,6 +65,7 @@ namespace $ {
 				socket.onclose = ()=> {}
 				clearInterval( beat )
 				stop_probe()
+				stop_wake()
 				socket.close()
 			}
 
@@ -72,6 +77,65 @@ namespace $ {
 			})
 
 			return port
+		}
+
+		wake_watch() {
+
+			const win = this.$.$mol_dom_context
+			const doc = win.document
+			if( !doc?.addEventListener ) return ()=> {}
+
+			const after = ( this.constructor as typeof $bog_yard ).wake_after
+			const net = ( win.navigator as any )?.connection as EventTarget | undefined
+
+			let hidden = doc.visibilityState === 'hidden' ? Date.now() : 0
+
+			const wake = ( reason: string )=> {
+
+				this.$.$mol_log3_rise({
+					place: this,
+					message: 'Reconnect on wake',
+					reason,
+				})
+
+				this.reconnects( null )
+
+			}
+
+			const visibility = ()=> {
+
+				if( doc.visibilityState === 'hidden' ) {
+					hidden = Date.now()
+					return
+				}
+
+				if( !hidden ) return
+
+				const slept = Date.now() - hidden
+				hidden = 0
+
+				if( slept >= after ) wake( 'visible' )
+
+			}
+
+			const online = ()=> wake( 'online' )
+			const network = ()=> wake( 'network' )
+			const show = ( event: Event )=> {
+				if( ( event as PageTransitionEvent ).persisted ) wake( 'pageshow' )
+			}
+
+			doc.addEventListener( 'visibilitychange', visibility )
+			win.addEventListener( 'online', online )
+			win.addEventListener( 'pageshow', show )
+			net?.addEventListener?.( 'change', network )
+
+			return ()=> {
+				doc.removeEventListener( 'visibilitychange', visibility )
+				win.removeEventListener( 'online', online )
+				win.removeEventListener( 'pageshow', show )
+				net?.removeEventListener?.( 'change', network )
+			}
+
 		}
 
 		@ $mol_mem

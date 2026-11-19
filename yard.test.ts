@@ -37,11 +37,24 @@ namespace $ {
 	/** Контекст с поддельным `WebSocket` и подменённым синхронизатором. */
 	function $bog_yard_test_context( ambient: typeof $$, Yard: typeof $bog_yard ) {
 		const context = Object.create( ambient ) as typeof $$
-		context.$mol_dom_context = Object.assign( Object.create( ambient.$mol_dom_context ), {
-			WebSocket: $bog_yard_test_socket as any,
+		const win = new EventTarget
+		const doc = Object.assign( new EventTarget, { visibilityState: 'visible' } )
+		context.$mol_dom_context = Object.create( ambient.$mol_dom_context, {
+			WebSocket: { value: $bog_yard_test_socket },
+			document: { value: doc },
+			navigator: { value: {} },
+			addEventListener: { value: win.addEventListener.bind( win ) },
+			removeEventListener: { value: win.removeEventListener.bind( win ) },
+			dispatchEvent: { value: win.dispatchEvent.bind( win ) },
 		} )
 		context.$giper_baza_yard = Yard
 		return context
+	}
+
+	function $bog_yard_test_visibility( $: typeof $$, state: 'visible' | 'hidden' ) {
+		const doc = $.$mol_dom_context.document as any
+		doc.visibilityState = state
+		doc.dispatchEvent( new Event( 'visibilitychange' ) )
 	}
 
 	$mol_test({
@@ -95,6 +108,67 @@ namespace $ {
 			await new Promise( done => setTimeout( done, 20 ) )
 
 			$mol_assert_equal( yard.master_cursor(), 0 )
+
+			port!.destructor()
+
+		},
+
+		async 'Вернувшаяся сеть переподключает к тому же мастеру'( $ ) {
+
+			$bog_yard_test_socket.reset()
+			$bog_yard_test_socket.delays.set( 'wss://alive.example/', 5 )
+
+			class Yard extends $bog_yard {
+				static override masters() {
+					return [ 'https://alive.example/' ]
+				}
+			}
+
+			const context = $bog_yard_test_context( $, Yard )
+			const yard = Yard.make({ $: context })
+			await $mol_wire_async( yard ).master()
+
+			context.$mol_dom_context.dispatchEvent( new Event( 'online' ) )
+			const port = await $mol_wire_async( yard ).master()
+
+			$mol_assert_equal( $bog_yard_test_socket.made.length, 2 )
+			$mol_assert_equal( $bog_yard_test_socket.made[ 0 ].closed, true )
+			$mol_assert_equal( ( port as any ).socket, $bog_yard_test_socket.made[ 1 ] )
+			$mol_assert_equal( yard.master_cursor(), 0 )
+
+			port!.destructor()
+
+		},
+
+		async 'Короткий уход в фон связь не трогает, долгий переподключает'( $ ) {
+
+			$bog_yard_test_socket.reset()
+			$bog_yard_test_socket.delays.set( 'wss://alive.example/', 5 )
+
+			class Yard extends $bog_yard {
+				static override wake_after = 30
+				static override masters() {
+					return [ 'https://alive.example/' ]
+				}
+			}
+
+			const context = $bog_yard_test_context( $, Yard )
+			const yard = Yard.make({ $: context })
+			await $mol_wire_async( yard ).master()
+
+			$bog_yard_test_visibility( context, 'hidden' )
+			$bog_yard_test_visibility( context, 'visible' )
+			await $mol_wire_async( yard ).master()
+
+			$mol_assert_equal( $bog_yard_test_socket.made.length, 1 )
+
+			$bog_yard_test_visibility( context, 'hidden' )
+			await new Promise( done => setTimeout( done, 40 ) )
+			$bog_yard_test_visibility( context, 'visible' )
+			const port = await $mol_wire_async( yard ).master()
+
+			$mol_assert_equal( $bog_yard_test_socket.made.length, 2 )
+			$mol_assert_equal( $bog_yard_test_socket.made[ 0 ].closed, true )
 
 			port!.destructor()
 
